@@ -57,10 +57,11 @@ android {
 
     defaultConfig {
         applicationId = "io.github.miuzarte.scrcpyforandroid"
-        minSdk = 26
+        // legacy port: 26 -> 23, support Android 6.0+
+        minSdk = 23
         targetSdk = 37
         versionCode = 43
-        versionName = "0.6.0"
+        versionName = "0.6.0-api23"
 
         externalNativeBuild {
             cmake {
@@ -99,6 +100,8 @@ android {
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
+        // legacy port: java.time (API 26+) used by FileManagerService / RecordFilenameTemplate / RecordingFileResolver
+        isCoreLibraryDesugaringEnabled = true
     }
     buildFeatures {
         compose = true
@@ -142,7 +145,7 @@ dependencies {
     implementation(libs.androidx.lifecycle.runtime.ktx)
     implementation(libs.androidx.lifecycle.viewmodel.compose)
     implementation(libs.androidx.activity.compose)
-    implementation(libs.androidx.core.pip)
+    // legacy port: androidx.core:core-pip (minSdk 24) replaced by platform-API shim in StreamActivity
     implementation(platform(libs.androidx.compose.bom))
     implementation(libs.androidx.compose.ui)
     implementation(libs.androidx.compose.ui.tooling.preview)
@@ -176,6 +179,8 @@ dependencies {
     androidTestImplementation(libs.androidx.compose.ui.test.junit4)
     debugImplementation(libs.androidx.compose.ui.tooling)
     debugImplementation(libs.androidx.compose.ui.test.manifest)
+
+    coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.5")
 }
 
 val scrcpyServerAssetDir = "${project.projectDir}/src/main/assets/bin"

@@ -41,6 +41,14 @@ jobs:
       - name: Grant execute permission for gradlew
         run: chmod +x gradlew
 
+      # legacy API 23 port: miuix 子模块声明 MIN_SDK=24, 降到 23
+      - name: Patch miuix submodule minSdk 24 -> 23
+        run: |
+          set -euo pipefail
+          sed -i 's/const val MIN_SDK = 24/const val MIN_SDK = 23/' \
+            submodule/miuix/build-plugins/src/main/kotlin/BuildConfig.kt
+          grep -n "MIN_SDK" submodule/miuix/build-plugins/src/main/kotlin/BuildConfig.kt
+
       - name: Build debug APKs
         run: ./gradlew clean assembleDebug
 

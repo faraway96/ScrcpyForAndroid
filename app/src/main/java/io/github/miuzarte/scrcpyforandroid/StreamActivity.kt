@@ -1,16 +1,19 @@
 package io.github.miuzarte.scrcpyforandroid
 
 import android.R.drawable
+import android.app.PictureInPictureParams
 import android.app.PictureInPictureUiState
 import android.app.RemoteAction
 import android.content.Context
 import android.content.Intent
+import android.graphics.Rect
 import android.graphics.drawable.Icon
+import android.os.Build
 import android.os.Bundle
+import android.util.Rational
 import androidx.activity.compose.setContent
-import androidx.core.app.PictureInPictureParamsCompat.Builder
+import androidx.annotation.RequiresApi
 import androidx.core.content.ContextCompat
-import androidx.core.pip.BasicPictureInPicture
 import androidx.fragment.app.FragmentActivity
 import io.github.miuzarte.scrcpyforandroid.pages.StreamScreen
 import io.github.miuzarte.scrcpyforandroid.services.AppScreenOn
@@ -20,7 +23,10 @@ import kotlinx.coroutines.flow.StateFlow
 import java.lang.ref.WeakReference
 
 class StreamActivity: FragmentActivity() {
-    private val basicPip by lazy { BasicPictureInPicture(this, ContextCompat.getMainExecutor(this)) }
+    // legacy port: androidx.core:core-pip (minSdk 24) replaced with platform APIs + guards.
+    // Picture-in-picture exists only on API 26+; every entry point below is guarded.
+    private val pipSupported: Boolean
+        get() = Build.VERSION.SDK_INT >= Build.VERSION_CODES.O
 
     private val pipActionReceiver = PictureInPictureActionReceiver()
     private var isPipActionReceiverRegistered = false
@@ -39,6 +45,9 @@ class StreamActivity: FragmentActivity() {
         )
     }
 
+    // 最近一次配置的 PiP 参数, API 26~30 上按 Home 时手动进入画中画用
+    private var currentPipParams: PictureInPictureParams? = null
+
     // 每次 进出全屏/进出画中画
     // 都会重建 activity
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -48,42 +57,70 @@ class StreamActivity: FragmentActivity() {
 
         registerPipActionReceiver()
 
-        // 声明要画中画
-        basicPip.setEnabled(true)
+        // 声明要画中画 (API 26+)
+        if (pipSupported) {
+            setPictureInPictureParams(PictureInPictureParams.Builder().build())
+        }
 
         setContent {
             StreamScreen(activity = this)
         }
-
-        /*
-        // 可能以后有用
-        basicPip.addOnPictureInPictureEventListener(
-            executor = mainExecutor,
-            listener = object : PictureInPictureDelegate.OnPictureInPictureEventListener {
-                override fun onPictureInPictureEvent(
-                    event: PictureInPictureDelegate.Event,
-                    config: Configuration?,
-                ) {
-                    // MIUI 只有这些事件
-                    when (event) {
-                        PictureInPictureDelegate.Event.ENTER_ANIMATION_START -> {}
-                        PictureInPictureDelegate.Event.ENTER_ANIMATION_END -> {}
-
-                        PictureInPictureDelegate.Event.STASHED -> {}
-                        PictureInPictureDelegate.Event.UNSTASHED -> {}
-
-                        // 收不到
-                        // PictureInPictureDelegate.Event.ENTERED -> {}
-                        // PictureInPictureDelegate.Event.EXITED -> {}
-                    }
-                }
-            }
-        )
-         */
     }
 
-    fun configurePip(block: Builder.() -> Builder) =
-        basicPip.setPictureInPictureParams(Builder().block().build())
+    // 对应原 androidx.core.pip 的 basicPip.setEnabled(true):
+    // API 26~30 在 onUserLeaveHint 中手动进入, API 31+ 由 setAutoEnterEnabled 自动进入
+    override fun onUserLeaveHint() {
+        super.onUserLeaveHint()
+        if (Build.VERSION.SDK_INT in Build.VERSION_CODES.O until Build.VERSION_CODES.S) {
+            val params = currentPipParams ?: return
+            if (!isInPictureInPictureMode) {
+                enterPictureInPictureMode(params)
+            }
+        }
+    }
+
+    /**
+     * 平台 API 版的 PiP 参数配置入口, 兼容原 androidx PictureInPictureParamsCompat 的方法名。
+     * API 26 以下为 no-op, lambda 不会执行 (其中引用了 API 24+ 的 RemoteAction)。
+     */
+    fun configurePip(block: PipParamsCompat.() -> Unit) {
+        if (!pipSupported) return
+        val builder = PictureInPictureParams.Builder()
+        block(PipParamsCompat(builder))
+        val params = builder.build()
+        currentPipParams = params
+        setPictureInPictureParams(params)
+    }
+
+    @RequiresApi(Build.VERSION_CODES.O)
+    class PipParamsCompat(private val builder: PictureInPictureParams.Builder) {
+        fun setEnabled(enabled: Boolean) {
+            if (enabled && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                builder.setAutoEnterEnabled(true)
+            }
+        }
+
+        fun setAspectRatio(aspectRatio: Rational) {
+            builder.setAspectRatio(aspectRatio)
+        }
+
+        fun setSourceRectHint(sourceRectHint: Rect?) {
+            if (sourceRectHint != null) {
+                builder.setSourceRectHint(sourceRectHint)
+            }
+        }
+
+        fun setSeamlessResizeEnabled(enabled: Boolean) {
+            builder.setSeamlessResizeEnabled(enabled)
+        }
+
+        fun setCloseAction(action: RemoteAction) {
+            // RemoteAction 版 close action 是 API 33+ 的能力, 低版本用系统自带关闭按钮
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                builder.setCloseAction(action)
+            }
+        }
+    }
 
     override fun onDestroy() {
         currentActivityRef?.get()
@@ -93,21 +130,6 @@ class StreamActivity: FragmentActivity() {
         unregisterPipActionReceiver()
         super.onDestroy()
     }
-
-    /*
-    // 回到全屏也会停止, 暂时不做
-    override fun onDestroy() {
-        super.onDestroy()
-
-        if (_pipModeState.value) {
-            Thread {
-                runBlocking {
-                    AppRuntime.scrcpy?.stop()
-                }
-            }.start()
-        }
-    }
-     */
 
     //- onPictureInPictureModeChanged
     //+ onPictureInPictureUiStateChanged
@@ -153,6 +175,9 @@ class StreamActivity: FragmentActivity() {
         }
 
         fun dismissActivePictureInPicture() {
+            // legacy port: Activity.isInPictureInPictureMode 需要 API 24+,
+            // 且 API 26 以下根本不可能处于画中画模式
+            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
             currentActivityRef?.get()
                 ?.takeIf { it.isInPictureInPictureMode }
                 ?.finish()

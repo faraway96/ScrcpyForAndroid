@@ -56,6 +56,32 @@ jobs:
           set -euo pipefail
           echo "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" | base64 -d > "$RELEASE_STORE_FILE"
 
+      # ===== legacy API 23 port patches =====
+      - name: Patch miuix submodule minSdk 24 -> 23
+        run: |
+          set -euo pipefail
+          sed -i 's/const val MIN_SDK = 24/const val MIN_SDK = 23/' \
+            submodule/miuix/build-plugins/src/main/kotlin/BuildConfig.kt
+          grep -n "MIN_SDK" submodule/miuix/build-plugins/src/main/kotlin/BuildConfig.kt
+
+      - name: Ensure signing config (ephemeral keystore when secrets absent)
+        run: |
+          set -euo pipefail
+          if [ ! -s "$RELEASE_STORE_FILE" ]; then
+            keytool -genkeypair -v -keystore "$RELEASE_STORE_FILE" -storetype PKCS12 \
+              -alias legacy23 -keyalg RSA -keysize 2048 -validity 10000 \
+              -storepass legacy23pass -keypass legacy23pass \
+              -dname "CN=ScrcpyForAndroid Legacy API23"
+            cat > .env <<'ENVEOF'
+          RELEASE_STORE_FILE=/tmp/release.p12
+          RELEASE_STORE_PASSWORD=legacy23pass
+          RELEASE_KEY_ALIAS=legacy23
+          RELEASE_KEY_PASSWORD=legacy23pass
+          ENVEOF
+            echo "Generated ephemeral signing keystore (fork build without secrets)"
+          fi
+      # ===== end legacy port patches =====
+
       - name: Build signed release APKs
         run: ./gradlew clean assembleRelease
 
@@ -134,6 +160,32 @@ jobs:
         run: |
           set -euo pipefail
           echo "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" | base64 -d > "$RELEASE_STORE_FILE"
+
+      # ===== legacy API 23 port patches =====
+      - name: Patch miuix submodule minSdk 24 -> 23
+        run: |
+          set -euo pipefail
+          sed -i 's/const val MIN_SDK = 24/const val MIN_SDK = 23/' \
+            submodule/miuix/build-plugins/src/main/kotlin/BuildConfig.kt
+          grep -n "MIN_SDK" submodule/miuix/build-plugins/src/main/kotlin/BuildConfig.kt
+
+      - name: Ensure signing config (ephemeral keystore when secrets absent)
+        run: |
+          set -euo pipefail
+          if [ ! -s "$RELEASE_STORE_FILE" ]; then
+            keytool -genkeypair -v -keystore "$RELEASE_STORE_FILE" -storetype PKCS12 \
+              -alias legacy23 -keyalg RSA -keysize 2048 -validity 10000 \
+              -storepass legacy23pass -keypass legacy23pass \
+              -dname "CN=ScrcpyForAndroid Legacy API23"
+            cat > .env <<'ENVEOF'
+          RELEASE_STORE_FILE=/tmp/release.p12
+          RELEASE_STORE_PASSWORD=legacy23pass
+          RELEASE_KEY_ALIAS=legacy23
+          RELEASE_KEY_PASSWORD=legacy23pass
+          ENVEOF
+            echo "Generated ephemeral signing keystore (fork build without secrets)"
+          fi
+      # ===== end legacy port patches =====
 
       - name: Build signed release APKs
         run: ./gradlew clean assembleRelease

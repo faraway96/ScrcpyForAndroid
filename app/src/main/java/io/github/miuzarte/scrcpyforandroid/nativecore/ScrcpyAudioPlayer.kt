@@ -215,16 +215,22 @@ class ScrcpyAudioPlayer(
             .setBufferSizeInBytes(bufferSize)
             .setTransferMode(AudioTrack.MODE_STREAM)
             .setSessionId(AudioManager.AUDIO_SESSION_ID_GENERATE)
-        if (lowLatency)
+        // legacy port: AudioTrack#setPerformanceMode 需要 API 26+
+        if (lowLatency && Build.VERSION.SDK_INT >= Build.VERSION_CODES.O)
             trackBuilder.setPerformanceMode(AudioTrack.PERFORMANCE_MODE_LOW_LATENCY)
 
         val track = trackBuilder.build()
 
         if (lowLatency) {
+            // legacy port: AudioTrack#getPerformanceMode 需要 API 26+
+            val performanceModeText =
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O)
+                    "${track.performanceMode}"
+                else "<n/a>"
             Log.i(
                 TAG,
                 "low-latency audio requested: nativeSampleRate=$nativeSampleRate streamSampleRate=$SAMPLE_RATE " +
-                        "framesPerBurst=$framesPerBurst bufferSize=$bufferSize performanceMode=${track.performanceMode}",
+                        "framesPerBurst=$framesPerBurst bufferSize=$bufferSize performanceMode=$performanceModeText",
             )
         }
         return track
